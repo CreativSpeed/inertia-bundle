@@ -1,0 +1,38 @@
+{
+    "name": "creativspeed/inertia-bundle",
+    "description": "Symfony 8 integration for Inertia.js",
+    "type": "symfony-bundle",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Creativspeed\\InertiaBundle\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "CreativSpeed\\InertiaBundle\\Tests\\": "tests/"
+    },
+    "authors": [
+        {
+            "name": "Bachir Brahimi",
+            "email": "bachir@creativspeed.com"
+        }
+    ],
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "extra": {
+        "branch-alias": {
+            "dev-main": "1.0-dev"
+        }
+    },
+    "require": {
+        "php": ">=8.4",
+        "symfony/framework-bundle": "8.0.*",
+        "symfony/http-kernel": "8.0.*",
+        "symfony/dependency-injection": "8.0.*",
+        "symfony/config": "8.0.*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0",
+        "symfony/phpunit-bridge": "^7.0|^8.0"
+    }
+}
