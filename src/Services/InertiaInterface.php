@@ -2,6 +2,10 @@
 
 namespace Creativspeed\InertiaBundle\Services;
 
+use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\Response;
+use Creativspeed\InertiaBundle\DTO\Prop;
+
 interface InertiaInterface
 {
     /**
@@ -41,4 +45,8 @@ interface InertiaInterface
      * Get asset version
      */
     public function getVersion(): ?string;
+
+    public function lazy(callable $callback): Prop;
+    public function always(mixed $value): Prop;
+    public function defer(callable $callback, ?string $group = null): Prop;
 }

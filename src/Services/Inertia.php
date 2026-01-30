@@ -2,6 +2,13 @@
 
 namespace Creativspeed\InertiaBundle\Services;
 
+use Creativspeed\InertiaBundle\DTO\Prop;
+use Symfony\Bundle\SecurityBundle\Security;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\RequestStack;
+use Symfony\Component\HttpFoundation\Response;
+use Twig\Environment;
+
 class Inertia implements InertiaInterface
 {
     /** @var array<string, mixed> */
@@ -10,55 +17,111 @@ class Inertia implements InertiaInterface
     public function __construct(
         private readonly Environment $twig,
         private readonly RequestStack $requestStack,
+        private readonly Security $security,
         private ?string $version = null,
         private readonly string $rootView = 'app',
         private readonly bool $ssrEnabled = false,
         private readonly string $ssrUrl = 'http://127.0.0.1:13714',
-
     ) {
+        $this->shareAuthData();
     }
 
-    public function render(
-        string $component,
-        array $props = [],
-        array $viewData = []
-    ): Response {
-        $request = $this->requestStack->getCurrentRequest();
+    private function shareAuthData(): void
+    {
+        $user = $this->security->getUser();
 
+        $this->share('auth', [
+            'user' => $user ? [
+                'id' => $user->getId(),
+                'name' => $user->getName(),
+                'email' => $user->getEmail(),
+            ] : null,
+        ]);
+    }
+
+    public function render(string $component, array $props = [], array $viewData = []): Response
+    {
+        $request = $this->requestStack->getCurrentRequest();
         if (!$request) {
             throw new \RuntimeException('No request available');
         }
 
-        // Merge shared props with component props
+        // 1. Merge Shared Props
         $allProps = array_merge($this->sharedProps, $props);
 
-        // Build page object
+        // 2. Handle Partial Reloads & Lazy Evaluation
+        $only = array_filter(explode(',', $request->headers->get('X-Inertia-Partial-Data', '')));
+        $except = array_filter(explode(',', $request->headers->get('X-Inertia-Partial-Except', '')));
+        $partialComponent = $request->headers->get('X-Inertia-Partial-Component');
+
+        $isPartial = $partialComponent === $component && (!empty($only) || !empty($except));
+
+        $propsToReturn = [];
+
+        foreach ($allProps as $key => $value) {
+            // Logic for "Always" props
+            if ($value instanceof Prop && $value->isAlways()) {
+                $propsToReturn[$key] = $value();
+                continue;
+            }
+
+            // Logic for Partial Reloads
+            if ($isPartial) {
+                if (!empty($only) && !in_array($key, $only)) {
+                    continue; // Skip if not in 'only'
+                }
+                if (!empty($except) && in_array($key, $except)) {
+                    continue; // Skip if in 'except'
+                }
+            } else {
+                // If not partial, skip "Lazy" props
+                if ($value instanceof Prop && $value->isLazy()) {
+                    continue;
+                }
+            }
+
+            // Resolve value
+            $propsToReturn[$key] = ($value instanceof Prop) ? $value() : ($value instanceof \Closure ? $value() : $value);
+        }
+
         $page = [
             'component' => $component,
-            'props' => $allProps,
+            'props' => $propsToReturn,
             'url' => $request->getRequestUri(),
             'version' => $this->version,
         ];
 
-        // Check if this is an Inertia request
-        $isInertiaRequest = $request->headers->get('X-Inertia', false);
-
-        if ($isInertiaRequest) {
-            // Return JSON response for Inertia requests
-            $response = new JsonResponse($page);
-            $response->headers->set('X-Inertia', 'true');
-            $response->headers->set('Vary', 'X-Inertia');
-
-            return $response;
+        // 3. Return JSON for Inertia Requests
+        if ($request->headers->get('X-Inertia')) {
+            return new JsonResponse($page, 200, [
+                'X-Inertia' => 'true',
+                'Vary' => 'Accept',
+                'X-Inertia-Version' => $this->version // Ensure version is sent back
+            ]);
         }
 
-        // Render full HTML for first page load
-        $html = $this->twig->render("@Inertia/{$this->rootView}.html.twig", array_merge(
-            $viewData,
-            ['page' => $page]
-        ));
+        // 4. Server-Side Rendering (SSR)
+        if ($this->ssrEnabled && $this->httpClient) {
+            try {
+                $response = $this->httpClient->request('POST', $this->ssrUrl . '/render', [
+                    'json' => $page,
+                    'timeout' => 1.0, // Fail fast if SSR is down
+                ]);
 
-        return new Response($html);
+                if ($response->getStatusCode() === 200) {
+                    $result = $response->toArray();
+                    return new Response($result['body']); // Return pre-rendered HTML
+                }
+            } catch (\Exception $e) {
+                // Fallback to CSR (Client Side Rendering) silently or log warning
+            }
+        }
+
+        // 5. Fallback: Client-Side Rendering (Twig)
+        return new Response($this->twig->render("@Inertia/{$this->rootView}.html.twig", array_merge(
+            $viewData,
+            ['page' => $page] // Pass page object to view for data-page attribute
+        )));
     }
 
     public function share(string|array $key, mixed $value = null): self
@@ -87,5 +150,20 @@ class Inertia implements InertiaInterface
     public function getVersion(): ?string
     {
         return $this->version;
+    }
+
+    public function lazy(callable $callback): Prop
+    {
+        return Prop::lazy($callback(...));
+    }
+
+    public function always(mixed $value): Prop
+    {
+        return Prop::always($value);
+    }
+
+    public function defer(callable $callback, ?string $group = null): Prop
+    {
+        return Prop::defer($callback(...), $group);
     }
 }

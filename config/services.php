@@ -4,6 +4,7 @@ use Creativspeed\InertiaBundle\EventListener\InertiaListener;
 use Creativspeed\InertiaBundle\Services\Inertia;
 use Creativspeed\InertiaBundle\Services\InertiaInterface;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use function Symfony\Component\DependencyInjection\Loader\Configurator\param;
 
 return static function(ContainerConfigurator $container): void {
     $services = $container->services()
@@ -27,4 +28,4 @@ return static function(ContainerConfigurator $container): void {
         ->tag('kernel.event_subscriber')
     ;
 
-}
+};
