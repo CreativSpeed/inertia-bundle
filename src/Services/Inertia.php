@@ -2,6 +2,7 @@
 
 namespace Creativspeed\InertiaBundle\Services;
 
+use Creativspeed\InertiaBundle\Contracts\InertiaAuthUserInterface;
 use Creativspeed\InertiaBundle\DTO\Prop;
 use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -13,6 +14,7 @@ class Inertia implements InertiaInterface
 {
     /** @var array<string, mixed> */
     private array $sharedProps = [];
+    private ?string $computedVersion = null;
 
     public function __construct(
         private readonly Environment $twig,
@@ -28,15 +30,32 @@ class Inertia implements InertiaInterface
 
     private function shareAuthData(): void
     {
+        // Ensure Security is injected (it might be optional in your bundle)
+        if (!isset($this->security)) {
+            return;
+        }
+
         $user = $this->security->getUser();
 
-        $this->share('auth', [
-            'user' => $user ? [
-                'id' => $user->getId(),
-                'name' => $user->getName(),
-                'email' => $user->getEmail(),
-            ] : null,
-        ]);
+        if (!$user) {
+            $this->share('auth', ['user' => null]);
+            return;
+        }
+
+        // 1. Check if the User entity knows how to format itself
+        if ($user instanceof InertiaAuthUserInterface) {
+            $userData = $user->getInertiaAuthData();
+        }
+        // 2. Fallback: If they don't implement the interface, send minimal data safely
+        else {
+            $userData = [
+                'id' => method_exists($user, 'getId') ? $user->getId() : null,
+                'identifier' => $user->getUserIdentifier(), // Always exists in Symfony UserInterface
+            ];
+        }
+
+        $this->share('auth', ['user' => $userData]);
+
     }
 
     public function render(string $component, array $props = [], array $viewData = []): Response
@@ -117,8 +136,11 @@ class Inertia implements InertiaInterface
             }
         }
 
+        $view = $this->rootView; // "app" by default, or "base"
+        $template = str_contains($view, '.html.twig') ? $view : "@Inertia/{$view}.html.twig";
+
         // 5. Fallback: Client-Side Rendering (Twig)
-        return new Response($this->twig->render("@Inertia/{$this->rootView}.html.twig", array_merge(
+        return new Response($this->twig->render($template, array_merge(
             $viewData,
             ['page' => $page] // Pass page object to view for data-page attribute
         )));
@@ -149,7 +171,39 @@ class Inertia implements InertiaInterface
 
     public function getVersion(): ?string
     {
-        return $this->version;
+
+        // 1. Return cached result if we already computed it this request
+        if ($this->computedVersion) {
+            return $this->computedVersion;
+        }
+
+        // 2. If user manually set a version in config, use it
+        if ($this->version) {
+            return $this->computedVersion = $this->version;
+        }
+
+        // 3. Define possible locations for Vite's manifest
+        $projectDir = $this->kernel->getProjectDir();
+        $manifestPaths = [
+            // Vite 5+ (inside .vite folder)
+            $projectDir . '/public/build/.vite/manifest.json',
+            // Standard location
+            $projectDir . '/public/build/manifest.json',
+        ];
+
+        // 4. Check for manifest file
+        foreach ($manifestPaths as $path) {
+            if (file_exists($path)) {
+                // In production, hash the manifest file to detect changes
+                return $this->computedVersion = md5_file($path);
+            }
+        }
+
+        // 5. Fallback for Development
+        // In dev, we return a static string. If we returned a random hash
+        // or timestamp here, Inertia would force a full page reload on every
+        // navigation, breaking Vite's Hot Module Replacement (HMR).
+        return $this->computedVersion = 'dev';
     }
 
     public function lazy(callable $callback): Prop
@@ -165,5 +219,22 @@ class Inertia implements InertiaInterface
     public function defer(callable $callback, ?string $group = null): Prop
     {
         return Prop::defer($callback(...), $group);
+    }
+
+    private function detectVersion(): string
+    {
+        // If explicit version is set in config, use it
+        if ($this->version) {
+            return $this->version;
+        }
+
+        // Try to find Vite manifest
+        $manifestPath = $this->projectDir . '/public/build/manifest.json';
+        if (file_exists($manifestPath)) {
+            return md5_file($manifestPath);
+        }
+
+        // Fallback
+        return '1.0';
     }
 }

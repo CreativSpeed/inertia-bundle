@@ -28,4 +28,8 @@ return static function(ContainerConfigurator $container): void {
         ->tag('kernel.event_subscriber')
     ;
 
+    $services->set(Creativspeed\InertiaBundle\Twig\InertiaExtension::class)
+        ->tag('twig.extension')
+    ;
+
 };

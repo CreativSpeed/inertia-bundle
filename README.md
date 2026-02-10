@@ -6,16 +6,15 @@
 
 Modern [Inertia.js](https://inertiajs.com/) integration for **Symfony 8** and **PHP 8.2+**. Build powerful single-page applications using Vue.js or React without the complexity of building an API.
 
-## ✨ Features
+## Features
 
-- 🚀 **Modern Symfony 8** - Built with `AbstractBundle` pattern
-- 🎯 **Zero Configuration** - Works out of the box
-- 🔄 **Automatic Auth Sharing** - User data automatically available in frontend
-- ⚡ **Partial Reloads** - Only fetch data you need
-- 🎨 **Vue 3 & React Support** - Use your favorite framework
-- 🔒 **Security First** - Integrates seamlessly with Symfony Security
-- 📦 **PSR-4 Autoloading** - Modern PHP standards
-- 🧪 **Type Safe** - Full PHP 8.2+ type hints
+- 🚀 **Symfony 8** & **PHP 8.2+** Support
+- ⚡ **Inertia.js v2 Protocol** (Deferred props, Lazy props, Merge props)
+- 🖥️ **Server-Side Rendering (SSR)** support
+- 📦 **Vite Integration** with automatic version detection
+- 🛠️ **Twig Helpers** (`inertia()`, `inertiaHead()`)
+- ✅ **Testing Helpers** (`assertInertia`)
+- 🔄 **Automatic Flash Data & Error Sharing**
 
 ## 📋 Requirements
 
