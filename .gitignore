@@ -16,3 +16,6 @@ composer.lock
 # OS
 .DS_Store
 Thumbs.db
+
+# AI
+.claude

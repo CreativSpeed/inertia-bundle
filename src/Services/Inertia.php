@@ -2,13 +2,15 @@
 
 namespace Creativspeed\InertiaBundle\Services;
 
+use Closure;
+use Twig\Environment;
 use Creativspeed\InertiaBundle\Contracts\InertiaAuthUserInterface;
 use Creativspeed\InertiaBundle\DTO\Prop;
 use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
-use Twig\Environment;
+use Symfony\Component\Serializer\SerializerInterface;
 
 class Inertia implements InertiaInterface
 {
@@ -24,6 +26,7 @@ class Inertia implements InertiaInterface
         private readonly string $rootView = 'app',
         private readonly bool $ssrEnabled = false,
         private readonly string $ssrUrl = 'http://127.0.0.1:13714',
+        private readonly ?SerializerInterface $serializer = null,
     ) {
         $this->shareAuthData();
     }
@@ -221,14 +224,25 @@ class Inertia implements InertiaInterface
         return Prop::defer($callback(...), $group);
     }
 
+    /**
+     * Automatically normalize complex entities into frontend-ready arrays.
+     */
+    public function serialize(mixed $data, array $context = ['groups' => ['default']]): mixed
+    {
+        if (!$this->serializer) {
+            return $data;
+        }
+
+        // Serialize to JSON -> raw array for Inertia response
+        return json_decode($this->serializer->serialize($data, 'json', $context), true);
+    }
+
     private function detectVersion(): string
     {
-        // If explicit version is set in config, use it
         if ($this->version) {
             return $this->version;
         }
 
-        // Try to find Vite manifest
         $manifestPath = $this->projectDir . '/public/build/manifest.json';
         if (file_exists($manifestPath)) {
             return md5_file($manifestPath);
