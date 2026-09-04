@@ -1,57 +1,67 @@
 <?php
 
-namespace Creativspeed\InertiaBundle\EventListener;
+namespace CreativSpeed\InertiaBundle\EventListener;
 
-use HttpException;
-use Creativspeed\InertiaBundle\Services\InertiaInterface;
+use CreativSpeed\InertiaBundle\Service\InertiaInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\ControllerEvent;
-use Symfony\Component\HttpKernel\Event\ExceptionEvent;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
-use Symfony\Component\HttpFoundation\Response;
 
+/**
+ * Wires the two pieces of the Inertia protocol that have to happen outside
+ * a controller: sharing per-request data (flash messages, the current
+ * auth user) before the controller runs, and fixing up the response after
+ * it runs (redirect status codes, asset-version conflicts).
+ */
 final class InertiaListener implements EventSubscriberInterface
 {
     public function __construct(
-        private readonly InertiaInterface $inertia
-    ) {}
+        private readonly InertiaInterface $inertia,
+    ) {
+    }
 
     public static function getSubscribedEvents(): array
     {
         return [
             KernelEvents::CONTROLLER => 'onKernelController',
-//            KernelEvents::RESPONSE => 'onKernelResponse',
-            KernelEvents::EXCEPTION => 'onKernelException',
+            KernelEvents::RESPONSE => 'onKernelResponse',
         ];
     }
 
     public function onKernelController(ControllerEvent $event): void
     {
-        // Share standard data automatically
+        if (!$event->isMainRequest()) {
+            return;
+        }
+
+        $this->inertia->shareAuthDataIfNeeded();
+
         $request = $event->getRequest();
-        $session = $request->hasSession() ? $request->getSession() : null;
+        if (!$request->hasSession()) {
+            return;
+        }
 
-        if ($session) {
-            $errors = $session->getFlashBag()->get('errors', []);
-            if ($errors) {
-                $this->inertia->share('errors', $errors);
-            }
+        $session = $request->getSession();
 
-            // Share Flash Messages
-            $this->inertia->share('flash', [
-                'success' => $session->getFlashBag()->get('success', []),
-                'error' => $session->getFlashBag()->get('error', []),
-            ]);
+        // Share every flash message type generically — not just a
+        // hardcoded success/error pair — so any category an app sets
+        // (warning, info, ...) actually reaches the frontend. `errors` is
+        // pulled out separately since Inertia's convention is a dedicated
+        // top-level `errors` prop, not a flash sub-key.
+        $flashes = $session->getFlashBag()->all();
 
-            // Share Auth User (Example - adjust based on your Security setup)
-            // $this->inertia->share('auth', [ 'user' => ... ]);
+        if (isset($flashes['errors'])) {
+            $this->inertia->share('errors', $flashes['errors']);
+            unset($flashes['errors']);
+        }
+
+        if (!empty($flashes)) {
+            $this->inertia->share('flash', $flashes);
         }
     }
 
-    /**
-     * Handle version mismatch for asset cache busting
-     */
     public function onKernelResponse(ResponseEvent $event): void
     {
         if (!$event->isMainRequest()) {
@@ -65,53 +75,32 @@ final class InertiaListener implements EventSubscriberInterface
             return;
         }
 
-        // Handle Redirects (302) -> 303 for Inertia
-        // Inertia requests expect 303 for redirects after PUT/PATCH/DELETE
-        if ($response->getStatusCode() === 302 && in_array($request->getMethod(), ['PUT', 'PATCH', 'DELETE'])) {
+        // Inertia requires a 303 (not 302) after PUT/PATCH/DELETE —
+        // otherwise the browser/XHR resends the redirect target with the
+        // original method instead of downgrading to GET.
+        if ($response->getStatusCode() === 302 && in_array($request->getMethod(), ['PUT', 'PATCH', 'DELETE'], true)) {
             $response->setStatusCode(Response::HTTP_SEE_OTHER);
         }
 
-        // Version Check (Existing logic)
-        $requestVersion = $request->headers->get('X-Inertia-Version');
-        $responseVersion = $this->inertia->getVersion(); // Get from service
+        // Asset-version conflicts only matter on GET navigations. Checking
+        if (!$request->isMethod('GET')) {
+            return;
+        }
 
-        if ($requestVersion && $responseVersion && $requestVersion !== $responseVersion) {
-            // 409 Conflict logic
+        $requestVersion = $request->headers->get('X-Inertia-Version');
+        $responseVersion = $this->inertia->getVersion();
+
+        if ($requestVersion !== null && $responseVersion !== null && $requestVersion !== $responseVersion) {
             if ($request->hasSession()) {
-                $request->getSession()->keep(); // Keep flash data
+                // Re-flash anything already consumed this request (e.g. by
+                // onKernelController above) so it survives the full page
+                // reload the client is about to perform.
+                $request->getSession()->getFlashBag()->keep();
             }
 
-            $response = new Response('', Response::HTTP_CONFLICT);
-            $response->headers->set('X-Inertia-Location', $request->getUri());
-            $event->setResponse($response);
-        }
-    }
-
-    /**
-     * Handle redirects for Inertia requests
-     */
-    public function onKernelException(ExceptionEvent $event): void
-    {
-        $exception = $event->getThrowable();
-
-        if (!$exception instanceof HttpException) {
-            return;
-        }
-
-        $request = $event->getRequest();
-
-        if (!$request->headers->has('X-Inertia')) {
-            return;
-        }
-
-        // Handle 302 redirects
-        if ($exception->getStatusCode() === Response::HTTP_FOUND) {
-            $response = new RedirectResponse(
-                $exception->getMessage(),
-                Response::HTTP_SEE_OTHER
-            );
-
-            $event->setResponse($response);
+            $conflict = new Response('', Response::HTTP_CONFLICT);
+            $conflict->headers->set('X-Inertia-Location', $request->getUri());
+            $event->setResponse($conflict);
         }
     }
 }

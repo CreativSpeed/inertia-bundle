@@ -8,17 +8,21 @@
         "symfony8",
         "inertia",
         "inertiajs",
+        "inertia 3",
+        "inertia v3",
         "vue",
         "react",
         "spa",
-        "bundle"
+        "bundle",
+        "symfony",
+        "reprise"
     ],
     "suggest": {
         "symfony/http-client": "Required if you want to use Server-Side Rendering (SSR)"
     },
     "autoload": {
         "psr-4": {
-            "Creativspeed\\InertiaBundle\\": "src/"
+            "CreativSpeed\\InertiaBundle\\": "src/"
         }
     },
     "autoload-dev": {

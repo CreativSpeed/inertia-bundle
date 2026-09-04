@@ -1,35 +1,39 @@
 <?php
 
-use Creativspeed\InertiaBundle\EventListener\InertiaListener;
-use Creativspeed\InertiaBundle\Services\Inertia;
-use Creativspeed\InertiaBundle\Services\InertiaInterface;
+use CreativSpeed\InertiaBundle\EventListener\InertiaListener;
+use CreativSpeed\InertiaBundle\Service\Inertia;
+use CreativSpeed\InertiaBundle\Service\InertiaInterface;
+use CreativSpeed\InertiaBundle\Twig\InertiaExtension;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+
 use function Symfony\Component\DependencyInjection\Loader\Configurator\param;
 
-return static function(ContainerConfigurator $container): void {
+return static function (ContainerConfigurator $container): void {
     $services = $container->services()
         ->defaults()
         ->autowire()
         ->autoconfigure();
 
-    // Register the Inertia service
-    $services->set(InertiaInterface::class, Inertia::class)
+    // Registered under the concrete class, aliased from the interface —
+    // the conventional direction for Symfony DI (autowiring by either
+    // Inertia::class or InertiaInterface::class both resolve the same
+    // single instance).
+    $services->set(Inertia::class)
+        ->arg('$projectDir', param('kernel.project_dir'))
         ->arg('$version', param('inertia.version'))
         ->arg('$rootView', param('inertia.root_view'))
+        ->arg('$rootId', param('inertia.root_id'))
         ->arg('$ssrEnabled', param('inertia.ssr.enabled'))
         ->arg('$ssrUrl', param('inertia.ssr.url'))
         ->public();
 
-    // Alias for easier access
-    $services->alias(Inertia::class, InertiaInterface::class);
+    $services->alias(InertiaInterface::class, Inertia::class)->public();
 
-    // Register event listener
     $services->set(InertiaListener::class)
-        ->tag('kernel.event_subscriber')
-    ;
+        ->tag('kernel.event_subscriber');
 
-    $services->set(Creativspeed\InertiaBundle\Twig\InertiaExtension::class)
-        ->tag('twig.extension')
-    ;
-
+    $services->set(InertiaExtension::class)
+        ->arg('$inertiaVersion', param('inertia.protocol_version'))
+        ->arg('$rootId', param('inertia.root_id'))
+        ->tag('twig.extension');
 };
